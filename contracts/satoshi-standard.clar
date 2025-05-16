@@ -149,3 +149,70 @@
     (ok vault-id)
   )
 )
+
+;; Mint STUSD stablecoins against collateral in a vault
+(define-public (mint-stablecoin 
+  (vault-owner principal)
+  (vault-id uint)
+  (mint-amount uint)
+)
+  (let
+    (
+      (is-valid-vault-id 
+        (and 
+          (> vault-id u0)
+          (<= vault-id (var-get vault-counter))
+        )
+      )
+      (vault 
+        (unwrap! 
+          (map-get? vaults {owner: vault-owner, id: vault-id}) 
+          ERR-INVALID-PARAMETERS
+        )
+      )
+      (btc-price 
+        (unwrap! 
+          (get-latest-btc-price) 
+          ERR-ORACLE-PRICE-UNAVAILABLE
+        )
+      )
+      (max-mintable 
+        (/
+          (* 
+            (get collateral-amount vault) 
+            btc-price
+          ) 
+          (var-get collateralization-ratio)
+        )
+      )
+    )
+    (asserts! is-valid-vault-id ERR-INVALID-PARAMETERS)
+    (asserts! (is-eq tx-sender vault-owner) ERR-UNAUTHORIZED-VAULT-ACTION)
+    (asserts! (> mint-amount u0) ERR-INVALID-PARAMETERS)
+    (asserts! 
+      (>= 
+        max-mintable 
+        (+ (get stablecoin-minted vault) mint-amount)
+      ) 
+      ERR-UNDERCOLLATERALIZED
+    )
+    (asserts! 
+      (<= 
+        (+ (get stablecoin-minted vault) mint-amount) 
+        (var-get max-mint-limit)
+      ) 
+      ERR-MINT-LIMIT-EXCEEDED
+    )
+    (map-set vaults {owner: vault-owner, id: vault-id}
+      {
+        collateral-amount: (get collateral-amount vault),
+        stablecoin-minted: (+ (get stablecoin-minted vault) mint-amount),
+        created-at: (get created-at vault)
+      }
+    )
+    (var-set total-supply 
+      (+ (var-get total-supply) mint-amount)
+    )
+    (ok true)
+  )
+)
